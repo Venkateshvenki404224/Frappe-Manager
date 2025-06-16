@@ -543,6 +543,7 @@ def update(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     bench_config_save = False
+    restart_required = False
 
     if not bench.compose_project.running:
         raise BenchNotRunning(bench_name=bench.name)
@@ -560,6 +561,7 @@ def update(
             richprint.print("Enabled frappe developer mode.")
 
         bench_config_save = True
+        restart_required = True
 
     if environment:
         richprint.change_head(f"Switching bench environemnt to {environment.value}")
@@ -567,6 +569,7 @@ def update(
         bench.switch_bench_env()
         richprint.print(f"Switched bench environemnt to {environment.value}.")
         bench_config_save = True
+        restart_required = True
 
     if ssl:
         new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
@@ -620,9 +623,10 @@ def update(
             bench.bench_config.admin_tools = True
 
             if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
-                bench.sync_admin_tools_compose()
+                restart_required = bench.sync_admin_tools_compose()
             else:
                 bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
+                restart_required = True
 
             bench_config_save = True
             richprint.print("Enabled Admin-tools.")
@@ -638,9 +642,26 @@ def update(
                 bench.bench_config.admin_tools = False
                 bench.admin_tools.disable()
                 bench_config_save = True
+                restart_required = True
 
     if bench_config_save:
         bench.save_bench_config()
+
+    if restart_required:
+        prompt_message = "Frappe server restart is required"
+        if admin_tools:
+            prompt_message += f" after {admin_tools.value} of admin-tools"
+        elif developer_mode:
+            prompt_message += f" after {developer_mode.value} of developer-mode"
+        prompt_message += ". Do you want to proceed ?"
+        should_restart = richprint.prompt_ask(
+            prompt=prompt_message,
+            choices=["yes", "no"],
+        )
+        if should_restart == "yes":
+            richprint.change_head("Restarting frappe server")
+            bench.restart_supervisor_service("frappe")
+            richprint.print("Restarted frappe server")
 
 
 @app.command()
